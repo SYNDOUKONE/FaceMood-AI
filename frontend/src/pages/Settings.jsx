@@ -3,21 +3,16 @@
  * Application settings and configuration
  */
 import { useState, useEffect, useCallback } from 'react'
-import { Settings as SettingsIcon, Slider, Eye, EyeOff, Shield, Bell, Info, AlertCircle, CheckCircle } from 'lucide-react'
+import { Settings as SettingsIcon, Sliders, Eye, EyeOff, Shield, Bell, Info, AlertCircle, CheckCircle, XCircle } from 'lucide-react'
 import { RecognitionAPI, HealthAPI } from '../services/api'
+import { DEFAULT_SETTINGS, loadSettings, saveSettingsToStorage, applyTheme } from '../utils/settings'
 
 export default function Settings() {
-  const [settings, setSettings] = useState({
-    recognitionThreshold: 0.6,
-    showLandmarks: true,
-    showMesh: true,
-    autoRecognize: true,
-    notifications: true,
-    darkMode: false,
-  })
+  const [settings, setSettings] = useState(() => loadSettings())
   const [apiStatus, setApiStatus] = useState('unknown')
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [successMessage, setSuccessMessage] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
 
   // Fetch current settings
@@ -26,13 +21,15 @@ export default function Settings() {
     setError(null)
 
     try {
-      // Get recognition threshold
+      const local = loadSettings()
+      // Get recognition threshold from backend
       const thresholdResult = await RecognitionAPI.getThreshold()
-      
-      setSettings(prev => ({
-        ...prev,
-        recognitionThreshold: thresholdResult.threshold || prev.recognitionThreshold,
-      }))
+      const merged = {
+        ...local,
+        recognitionThreshold: thresholdResult.threshold ?? local.recognitionThreshold,
+      }
+      setSettings(merged)
+      applyTheme(merged.darkMode)
 
       // Check API health
       const healthResult = await HealthAPI.check()
@@ -51,26 +48,29 @@ export default function Settings() {
 
   // Handle setting change
   const handleSettingChange = useCallback((key, value) => {
-    setSettings(prev => ({
-      ...prev,
-      [key]: value,
-    }))
+    setSuccessMessage(null)
+    setSettings(prev => {
+      const next = { ...prev, [key]: value }
+      if (key === 'darkMode') {
+        applyTheme(value)
+      }
+      return next
+    })
   }, [])
 
   // Save settings
   const saveSettings = useCallback(async () => {
     setIsSaving(true)
     setError(null)
+    setSuccessMessage(null)
 
     try {
-      // Save recognition threshold
+      // Save recognition threshold on backend
       await RecognitionAPI.setThreshold(settings.recognitionThreshold)
-      
-      // In a real implementation, save other settings to localStorage or API
-      localStorage.setItem('facemood-settings', JSON.stringify(settings))
-      
-      // Show success message
-      // (In a real implementation, we'd use a toast/notification system)
+
+      // Persist and broadcast to all mounted components
+      saveSettingsToStorage(settings)
+      setSuccessMessage('Paramètres enregistrés et appliqués avec succès.')
     } catch (err) {
       setError(err.message)
     } finally {
@@ -79,15 +79,18 @@ export default function Settings() {
   }, [settings])
 
   // Reset settings
-  const resetSettings = useCallback(() => {
-    setSettings({
-      recognitionThreshold: 0.6,
-      showLandmarks: true,
-      showMesh: true,
-      autoRecognize: true,
-      notifications: true,
-      darkMode: false,
-    })
+  const resetSettings = useCallback(async () => {
+    setError(null)
+    setSuccessMessage(null)
+    const defaults = { ...DEFAULT_SETTINGS }
+    setSettings(defaults)
+    saveSettingsToStorage(defaults)
+    try {
+      await RecognitionAPI.setThreshold(defaults.recognitionThreshold)
+      setSuccessMessage('Paramètres réinitialisés par défaut.')
+    } catch (err) {
+      setError(err.message)
+    }
   }, [])
 
   // Dismiss error
@@ -114,6 +117,17 @@ export default function Settings() {
           <AlertCircle className="w-5 h-5" />
           <span>{error}</span>
           <button onClick={dismissError} className="ml-auto text-error-600 hover:text-error-800">
+            Fermer
+          </button>
+        </div>
+      )}
+
+      {/* Success message */}
+      {successMessage && (
+        <div className="alert alert-success">
+          <CheckCircle className="w-5 h-5" />
+          <span>{successMessage}</span>
+          <button onClick={() => setSuccessMessage(null)} className="ml-auto text-success-600 hover:text-success-800">
             Fermer
           </button>
         </div>

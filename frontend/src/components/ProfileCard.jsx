@@ -6,6 +6,28 @@ import { useState } from 'react'
 import { User, Trash2, Edit2, Eye, Calendar, CheckCircle, XCircle } from 'lucide-react'
 import { ProfileAPI } from '../services/api'
 
+export function ProfileAvatar({ profile, sizeClass = 'w-12 h-12', iconClass = 'w-6 h-6' }) {
+  const [imgError, setImgError] = useState(false)
+  const avatarSrc = profile?.avatar_url && !imgError ? profile.avatar_url : null
+
+  if (avatarSrc) {
+    return (
+      <img
+        src={avatarSrc}
+        alt={profile.name}
+        onError={() => setImgError(true)}
+        className={`flex-shrink-0 ${sizeClass} rounded-full object-cover border-2 border-primary-200 shadow-sm`}
+      />
+    )
+  }
+
+  return (
+    <div className={`flex-shrink-0 ${sizeClass} bg-gradient-to-br from-primary-500 to-secondary-500 rounded-full flex items-center justify-center`}>
+      <User className={`${iconClass} text-white`} />
+    </div>
+  )
+}
+
 export default function ProfileCard({
   profile,
   onDelete = () => {},
@@ -44,9 +66,7 @@ export default function ProfileCard({
     <div className="profile-card group">
       <div className="flex items-center space-x-4">
         {/* Profile avatar */}
-        <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-full flex items-center justify-center">
-          <User className="w-6 h-6 text-white" />
-        </div>
+        <ProfileAvatar profile={profile} sizeClass="w-12 h-12" iconClass="w-6 h-6" />
 
         {/* Profile info */}
         <div className="flex-1 min-w-0">
@@ -125,8 +145,8 @@ export default function ProfileCard({
 export function ProfileGridCard({ profile, onDelete, onEdit, onView }) {
   return (
     <div className="profile-card p-6 text-center">
-      <div className="w-20 h-20 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-full flex items-center justify-center mx-auto mb-4">
-        <User className="w-10 h-10 text-white" />
+      <div className="mx-auto mb-4 flex justify-center">
+        <ProfileAvatar profile={profile} sizeClass="w-20 h-20" iconClass="w-10 h-10" />
       </div>
       
       <h3 className="font-semibold text-gray-900 truncate mb-1">{profile.name}</h3>
@@ -166,9 +186,7 @@ export function ProfileCompactCard({ profile, onClick }) {
       className="profile-card text-left hover:bg-gray-50 transition-colors"
     >
       <div className="flex items-center space-x-3">
-        <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
-          <User className="w-5 h-5 text-primary-600" />
-        </div>
+        <ProfileAvatar profile={profile} sizeClass="w-10 h-10" iconClass="w-5 h-5" />
         <div>
           <p className="font-medium text-gray-900">{profile.name}</p>
           <p className="text-xs text-gray-500">

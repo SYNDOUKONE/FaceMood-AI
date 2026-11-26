@@ -190,7 +190,7 @@ export const RecognitionAPI = {
    * @returns {Promise<Object>} - Recognition result
    */
   recognize: async (image, threshold = null) => {
-    const url = new URL(`${API_BASE}/api/recognize/`)
+    const url = new URL(`${API_BASE}/api/recognize/`, window.location.origin)
     if (threshold !== null) {
       url.searchParams.append('threshold', threshold.toString())
     }
@@ -206,7 +206,7 @@ export const RecognitionAPI = {
    * @returns {Promise<Object>} - Verification result
    */
   verify: async (profileId, image, threshold = null) => {
-    const url = new URL(`${API_BASE}/api/recognize/verify/${profileId}`)
+    const url = new URL(`${API_BASE}/api/recognize/verify/${profileId}`, window.location.origin)
     if (threshold !== null) {
       url.searchParams.append('threshold', threshold.toString())
     }
@@ -222,7 +222,7 @@ export const RecognitionAPI = {
    * @returns {Promise<Object>} - Similar profiles
    */
   findSimilar: async (profileId, threshold = 0.0, topK = 5) => {
-    const url = new URL(`${API_BASE}/api/recognize/similar/${profileId}`)
+    const url = new URL(`${API_BASE}/api/recognize/similar/${profileId}`, window.location.origin)
     url.searchParams.append('threshold', threshold.toString())
     url.searchParams.append('top_k', topK.toString())
     
@@ -243,7 +243,7 @@ export const RecognitionAPI = {
    * @returns {Promise<Object>} - Confirmation
    */
   setThreshold: async (threshold) => {
-    const url = new URL(`${API_BASE}/api/recognize/threshold`)
+    const url = new URL(`${API_BASE}/api/recognize/threshold`, window.location.origin)
     url.searchParams.append('threshold', threshold.toString())
     
     return apiRequest(url.pathname + url.search, { method: 'POST' })
@@ -347,7 +347,7 @@ export const ProfileAPI = {
    * @returns {Promise<Object>} - Updated profile
    */
   update: async (profileId, data) => {
-    const url = new URL(`${API_BASE}/api/profiles/${profileId}`)
+    const url = new URL(`${API_BASE}/api/profiles/${profileId}`, window.location.origin)
     
     // Add query parameters
     if (data.name) url.searchParams.append('name', data.name)
@@ -417,10 +417,13 @@ export const ProfileAPI = {
    * @returns {Promise<Object>} - Matching profiles
    */
   search: async (name) => {
-    const url = new URL(`${API_BASE}/api/profiles/search`)
+    const url = new URL(`${API_BASE}/api/profiles/search`, window.location.origin)
     url.searchParams.append('name', name)
     
     return apiRequest(url.pathname + url.search)
+  },
+  enroll: async (name, images, consent = true) => {
+    return FaceAPI.enroll(name, images, consent)
   },
 }
 

@@ -4,7 +4,7 @@ Uses SQLAlchemy with async support (aiosqlite)
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Text
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, LargeBinary, Text, select
 from sqlalchemy.sql import func
 from datetime import datetime
 from typing import AsyncGenerator
@@ -33,7 +33,7 @@ class Profile(Base):
     embedding = Column(LargeBinary, nullable=False)
     
     # Metadata (optional)
-    metadata = Column(Text, nullable=True)
+    extra_metadata = Column("metadata", Text, nullable=True)
 
 
 class DetectionLog(Base):
@@ -87,7 +87,7 @@ class DatabaseManager:
     async def get_profile_by_id(session: AsyncSession, profile_id: int) -> Profile:
         """Get a profile by ID"""
         result = await session.execute(
-            Profile.__table__.select().where(Profile.id == profile_id)
+            select(Profile).where(Profile.id == profile_id)
         )
         return result.scalar_one_or_none()
     
@@ -95,14 +95,14 @@ class DatabaseManager:
     async def get_profile_by_name(session: AsyncSession, name: str) -> Profile:
         """Get a profile by name"""
         result = await session.execute(
-            Profile.__table__.select().where(Profile.name == name)
+            select(Profile).where(Profile.name == name)
         )
         return result.scalar_one_or_none()
     
     @staticmethod
     async def get_all_profiles(session: AsyncSession) -> list[Profile]:
         """Get all profiles"""
-        result = await session.execute(Profile.__table__.select())
+        result = await session.execute(select(Profile))
         return result.scalars().all()
     
     @staticmethod
@@ -118,7 +118,7 @@ class DatabaseManager:
             name=name,
             embedding=embedding,
             consent_given=consent,
-            metadata=str(metadata) if metadata else None
+            extra_metadata=str(metadata) if metadata else None
         )
         session.add(profile)
         await session.flush()

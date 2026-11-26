@@ -37,7 +37,8 @@ async def recognize_face(
         ge=0.0,
         le=1.0,
         description="Recognition confidence threshold (0.0 to 1.0)"
-    )
+    ),
+    db: AsyncSession = Depends(get_db)
 ) -> FaceRecognizeResponse:
     """
     Recognize a face in an image
@@ -58,37 +59,35 @@ async def recognize_face(
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         # Perform recognition
-        db = next(get_db())
-        try:
-            result = await recognition_service.recognize(
-                session=db,
-                image=image,
-                threshold=threshold
-            )
-            
-            if result.get("success", False):
-                if result.get("recognized", False):
-                    profile = result.get("profile")
-                    return FaceRecognizeResponse(
-                        success=True,
-                        recognized=True,
-                        profile=profile,
-                        message=result.get("message", "Face recognized")
-                    )
-                else:
-                    return FaceRecognizeResponse(
-                        success=True,
-                        recognized=False,
-                        message=result.get("message", "No matching profile found")
-                    )
+        result = await recognition_service.recognize(
+            session=db,
+            image=image,
+            threshold=threshold
+        )
+        
+        if result.get("success", False):
+            if result.get("recognized", False):
+                profile = result.get("profile")
+                return FaceRecognizeResponse(
+                    success=True,
+                    recognized=True,
+                    profile=profile,
+                    results=result.get("results", []),
+                    message=result.get("message", "Face recognized")
+                )
             else:
                 return FaceRecognizeResponse(
-                    success=False,
+                    success=True,
                     recognized=False,
-                    message=result.get("message", "Recognition failed")
+                    results=result.get("results", []),
+                    message=result.get("message", "No matching profile found")
                 )
-        finally:
-            await db.close()
+        else:
+            return FaceRecognizeResponse(
+                success=False,
+                recognized=False,
+                message=result.get("message", "Recognition failed")
+            )
         
     except Exception as e:
         logger.error(f"Error in face recognition: {e}")
@@ -108,7 +107,8 @@ async def verify_identity(
         ge=0.0,
         le=1.0,
         description="Verification confidence threshold"
-    )
+    ),
+    db: AsyncSession = Depends(get_db)
 ) -> FaceRecognizeResponse:
     """
     Verify if an image matches a specific profile
@@ -128,41 +128,37 @@ async def verify_identity(
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         # Perform verification
-        db = next(get_db())
-        try:
-            result = await recognition_service.verify_identity(
-                session=db,
-                profile_id=profile_id,
-                image=image,
-                threshold=threshold
-            )
-            
-            if result.get("success", False):
-                if result.get("verified", False):
-                    return FaceRecognizeResponse(
-                        success=True,
-                        recognized=True,
-                        profile={
-                            "id": result.get("profile_id"),
-                            "name": result.get("profile_name"),
-                            "confidence": result.get("confidence", 0.0)
-                        },
-                        message=result.get("message", "Identity verified")
-                    )
-                else:
-                    return FaceRecognizeResponse(
-                        success=True,
-                        recognized=False,
-                        message=result.get("message", "Identity not verified")
-                    )
+        result = await recognition_service.verify_identity(
+            session=db,
+            profile_id=profile_id,
+            image=image,
+            threshold=threshold
+        )
+        
+        if result.get("success", False):
+            if result.get("verified", False):
+                return FaceRecognizeResponse(
+                    success=True,
+                    recognized=True,
+                    profile={
+                        "id": result.get("profile_id"),
+                        "name": result.get("profile_name"),
+                        "confidence": result.get("confidence", 0.0)
+                    },
+                    message=result.get("message", "Identity verified")
+                )
             else:
                 return FaceRecognizeResponse(
-                    success=False,
+                    success=True,
                     recognized=False,
-                    message=result.get("message", "Verification failed")
+                    message=result.get("message", "Identity not verified")
                 )
-        finally:
-            await db.close()
+        else:
+            return FaceRecognizeResponse(
+                success=False,
+                recognized=False,
+                message=result.get("message", "Verification failed")
+            )
         
     except Exception as e:
         logger.error(f"Error in identity verification: {e}")
@@ -187,7 +183,8 @@ async def find_similar(
         ge=1,
         le=20,
         description="Number of similar profiles to return"
-    )
+    ),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Find profiles similar to a given profile
@@ -201,35 +198,30 @@ async def find_similar(
         List of similar profiles with similarity scores
     """
     try:
-        db = next(get_db())
-        try:
-            # Get the reference profile's embedding
-            profile_result = await recognition_service.get_profile_embedding(
-                session=db,
-                profile_id=profile_id
-            )
-            
-            if not profile_result.get("success", False):
-                return {
-                    "success": False,
-                    "message": profile_result.get("message", "Profile not found")
-                }
-            
-            # Find similar profiles
-            similar_profiles = await recognition_service.find_similar_faces(
-                session=db,
-                image=None,  # We'll use the embedding directly
-                top_k=top_k,
-                threshold=threshold
-            )
-            
+        # Get the reference profile's embedding
+        profile_result = await recognition_service.get_profile_embedding(
+            session=db,
+            profile_id=profile_id
+        )
+        
+        if not profile_result.get("success", False):
             return {
-                "success": True,
-                "similar_profiles": similar_profiles
+                "success": False,
+                "message": profile_result.get("message", "Profile not found")
             }
-            
-        finally:
-            await db.close()
+        
+        # Find similar profiles
+        similar_profiles = await recognition_service.find_similar_faces(
+            session=db,
+            image=None,  # We'll use the embedding directly
+            top_k=top_k,
+            threshold=threshold
+        )
+        
+        return {
+            "success": True,
+            "similar_profiles": similar_profiles
+        }
         
     except Exception as e:
         logger.error(f"Error finding similar profiles: {e}")

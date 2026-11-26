@@ -57,9 +57,11 @@ async def analyze_expression(
                 message="No face detected in image"
             )
         
-        # Analyze expression
+        # Analyze expression — blendshapes is now a list-of-lists (one per face).
+        # We pick the first face for single-shot expression analysis.
         landmarks = landmark_result.get("landmarks", [{}])[0].get("landmarks_3d", [])
-        blendshapes = landmark_result.get("blendshapes", [])
+        all_blendshapes = landmark_result.get("blendshapes", [])
+        blendshapes = all_blendshapes[0] if all_blendshapes else []
         
         result = expression_analyzer.analyze(landmarks, blendshapes)
         

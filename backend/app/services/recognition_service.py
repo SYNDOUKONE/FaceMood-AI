@@ -48,13 +48,14 @@ class RecognitionService:
         """
         use_threshold = threshold if threshold is not None else self.threshold
         
-        # Generate embedding for the input image
-        embedding = self.embedding_service.generate_embedding(image)
+        # Generate embeddings for all detected faces
+        detected_faces = self.embedding_service.generate_all_embeddings(image)
         
-        if embedding is None:
+        if not detected_faces:
             return {
                 "success": False,
                 "recognized": False,
+                "results": [],
                 "message": "No face detected in image"
             }
         
@@ -65,51 +66,82 @@ class RecognitionService:
             return {
                 "success": True,
                 "recognized": False,
+                "results": [
+                    {
+                        "recognized": False,
+                        "profile": None,
+                        "confidence": 0.0,
+                        "bbox": face["bbox"],
+                    }
+                    for face in detected_faces
+                ],
                 "message": "No profiles in database"
             }
         
-        # Compare with each profile
-        best_match = None
-        best_score = 0.0
-        
+        # Pre-decrypt stored embeddings once for all detected faces
+        decrypted_profiles = []
         for profile in profiles:
-            # Decrypt the stored embedding
             decrypted_embedding = self.embedding_service.decrypt_embedding(profile.embedding)
-            
             if decrypted_embedding is None:
                 logger.warning(f"Failed to decrypt embedding for profile {profile.id}")
                 continue
-            
-            # Compare embeddings
-            similarity = self.embedding_service.compare_embeddings(
-                embedding, 
-                decrypted_embedding,
-                method="cosine"
-            )
-            
-            if similarity > best_score:
-                best_score = similarity
-                best_match = profile
+            decrypted_profiles.append((profile, decrypted_embedding))
         
-        # Check if we have a match above the threshold
-        if best_match and best_score >= use_threshold:
+        face_results = []
+        primary_profile = None
+        any_recognized = False
+
+        for face in detected_faces:
+            emb = face["embedding"]
+            best_match = None
+            best_score = 0.0
+
+            for profile, stored_emb in decrypted_profiles:
+                similarity = self.embedding_service.compare_embeddings(
+                    emb,
+                    stored_emb,
+                    method="cosine"
+                )
+                if similarity > best_score:
+                    best_score = similarity
+                    best_match = profile
+
+            is_match = bool(best_match and best_score >= use_threshold)
+            matched_profile = None
+            if is_match:
+                matched_profile = {
+                    "id": best_match.id,
+                    "name": best_match.name,
+                    "confidence": float(best_score),
+                }
+                any_recognized = True
+                if primary_profile is None:
+                    primary_profile = matched_profile
+
+            face_results.append({
+                "recognized": is_match,
+                "profile": matched_profile,
+                "confidence": float(best_score) if best_match else 0.0,
+                "bbox": face["bbox"],
+            })
+
+        if any_recognized:
+            names = ", ".join(r["profile"]["name"] for r in face_results if r["recognized"])
             return {
                 "success": True,
                 "recognized": True,
-                "profile": {
-                    "id": best_match.id,
-                    "name": best_match.name,
-                    "confidence": float(best_score)
-                },
+                "profile": primary_profile,
+                "results": face_results,
                 "threshold": use_threshold,
-                "message": f"Recognized as {best_match.name} with confidence {best_score:.2f}"
+                "message": f"Recognized: {names}"
             }
         else:
             return {
                 "success": True,
                 "recognized": False,
                 "profile": None,
-                "confidence": float(best_score) if best_match else 0.0,
+                "results": face_results,
+                "confidence": max((r["confidence"] for r in face_results), default=0.0),
                 "threshold": use_threshold,
                 "message": "No matching profile found"
             }

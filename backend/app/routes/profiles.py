@@ -2,8 +2,8 @@
 Profile Management Routes for FaceMood AI
 Handles CRUD operations for face profiles
 """
-from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, HTTPException, status
+from fastapi.responses import JSONResponse, FileResponse
 from typing import List, Optional
 import numpy as np
 import cv2
@@ -13,7 +13,7 @@ from ..core.database import get_db, Profile
 from ..core.config import settings
 from ..services.embedding_service import EmbeddingService
 from ..services.face_detector import FaceDetector
-from ..services.profile_service import ProfileService
+from ..services.profile_service import ProfileService, AVATARS_DIR
 from ..models.face_model import (
     ProfileCreateRequest,
     ProfileResponse,
@@ -69,6 +69,88 @@ async def list_profiles(
         )
 
 
+@router.get("/count")
+async def get_profile_count(
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get the total number of profiles
+    
+    Returns:
+        Count of enrolled profiles
+    """
+    try:
+        result = await profile_service.get_all_profiles(db)
+        return {
+            "success": True,
+            "count": result.get("count", 0)
+        }
+    except Exception as e:
+        logger.error(f"Error getting profile count: {e}")
+        return {
+            "success": False,
+            "count": 0,
+            "message": str(e)
+        }
+
+
+@router.get("/search")
+async def search_profiles(
+    name: str = Query(..., description="Name to search for"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Search for profiles by name
+    
+    Parameters:
+        - name: Name or partial name to search for
+    
+    Returns:
+        List of matching profiles
+    """
+    try:
+        result = await profile_service.get_all_profiles(db)
+        
+        if not result.get("success", False):
+            return {
+                "success": False,
+                "profiles": [],
+                "message": result.get("message", "Failed to search profiles")
+            }
+        
+        # Filter by name
+        profiles = result.get("profiles", [])
+        matching_profiles = [
+            p for p in profiles 
+            if name.lower() in p.get("name", "").lower()
+        ]
+        
+        return {
+            "success": True,
+            "profiles": matching_profiles,
+            "count": len(matching_profiles)
+        }
+    except Exception as e:
+        logger.error(f"Error searching profiles: {e}")
+        return {
+            "success": False,
+            "profiles": [],
+            "message": str(e)
+        }
+
+
+@router.get("/{profile_id}/avatar")
+async def get_profile_avatar(profile_id: int):
+    """Serve the saved avatar image for a profile."""
+    avatar_path = AVATARS_DIR / f"{profile_id}.jpg"
+    if not avatar_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Avatar not found"
+        )
+    return FileResponse(str(avatar_path), media_type="image/jpeg")
+
+
 @router.get("/{profile_id}", response_model=ProfileResponse)
 async def get_profile(
     profile_id: int,
@@ -104,21 +186,22 @@ async def get_profile(
 
 @router.post("/", response_model=ProfileResponse)
 async def create_profile(
-    request: ProfileCreateRequest,
-    files: List[UploadFile] = File(..., description="Face images for enrollment")
+    name: str = Form(...),
+    files: List[UploadFile] = File(..., description="Face images for enrollment"),
+    db: AsyncSession = Depends(get_db)
 ) -> ProfileResponse:
     """
     Create a new profile
     
     Parameters:
-        - request: Profile information (name)
+        - name: Profile name
         - files: List of face images
     
     Returns:
         Created profile information
     """
     try:
-        if not request.name or len(request.name.strip()) == 0:
+        if not name or len(name.strip()) == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Profile name is required"
@@ -139,34 +222,30 @@ async def create_profile(
             images.append(image)
         
         # Create profile
-        db = next(get_db())
-        try:
-            result = await profile_service.create_profile(
-                session=db,
-                name=request.name.strip(),
-                images=images,
-                consent=True
-            )
-            
-            if result.get("success", False):
-                profile_id = result.get("profile_id")
-                profile = await DatabaseManager.get_profile_by_id(db, profile_id)
-                if profile:
-                    return ProfileResponse(
-                        id=profile.id,
-                        name=profile.name,
-                        consent_given=profile.consent_given,
-                        consent_date=profile.consent_date,
-                        created_at=profile.created_at,
-                        updated_at=profile.updated_at
-                    )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=result.get("message", "Failed to create profile")
+        result = await profile_service.create_profile(
+            session=db,
+            name=name.strip(),
+            images=images,
+            consent=True
+        )
+        
+        if result.get("success", False):
+            profile_id = result.get("profile_id")
+            profile = await DatabaseManager.get_profile_by_id(db, profile_id)
+            if profile:
+                return ProfileResponse(
+                    id=profile.id,
+                    name=profile.name,
+                    consent_given=profile.consent_given,
+                    consent_date=profile.consent_date,
+                    created_at=profile.created_at,
+                    updated_at=profile.updated_at
                 )
-        finally:
-            await db.close()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("message", "Failed to create profile")
+            )
         
     except HTTPException:
         raise
@@ -353,73 +432,3 @@ async def get_profile_embedding(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving embedding: {str(e)}"
         )
-
-
-@router.get("/count")
-async def get_profile_count(
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Get the total number of profiles
-    
-    Returns:
-        Count of enrolled profiles
-    """
-    try:
-        result = await profile_service.get_all_profiles(db)
-        return {
-            "success": True,
-            "count": result.get("count", 0)
-        }
-    except Exception as e:
-        logger.error(f"Error getting profile count: {e}")
-        return {
-            "success": False,
-            "count": 0,
-            "message": str(e)
-        }
-
-
-@router.get("/search")
-async def search_profiles(
-    name: str = Query(..., description="Name to search for"),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Search for profiles by name
-    
-    Parameters:
-        - name: Name or partial name to search for
-    
-    Returns:
-        List of matching profiles
-    """
-    try:
-        result = await profile_service.get_all_profiles(db)
-        
-        if not result.get("success", False):
-            return {
-                "success": False,
-                "profiles": [],
-                "message": result.get("message", "Failed to search profiles")
-            }
-        
-        # Filter by name
-        profiles = result.get("profiles", [])
-        matching_profiles = [
-            p for p in profiles 
-            if name.lower() in p.get("name", "").lower()
-        ]
-        
-        return {
-            "success": True,
-            "profiles": matching_profiles,
-            "count": len(matching_profiles)
-        }
-    except Exception as e:
-        logger.error(f"Error searching profiles: {e}")
-        return {
-            "success": False,
-            "profiles": [],
-            "message": str(e)
-        }

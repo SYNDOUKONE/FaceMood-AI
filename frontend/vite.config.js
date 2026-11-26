@@ -10,11 +10,11 @@ export default defineConfig({
     proxy: {
       // Proxy API requests to backend
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8001',
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:8001',
         changeOrigin: true,
       }
     }

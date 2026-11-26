@@ -1,8 +1,8 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Face, Users, Settings as SettingsIcon } from 'lucide-react'
+import { ScanFace, Users, Settings as SettingsIcon } from 'lucide-react'
 
 const navItems = [
-  { path: '/', icon: Face, label: 'Détection' },
+  { path: '/', icon: ScanFace, label: 'Détection' },
   { path: '/profiles', icon: Users, label: 'Profils' },
   { path: '/settings', icon: SettingsIcon, label: 'Paramètres' },
 ]
@@ -17,7 +17,7 @@ export default function Navbar() {
           {/* Logo */}
           <Link to="/" className="flex items-center space-x-2">
             <div className="w-10 h-10 bg-gradient-to-br from-primary-600 to-secondary-600 rounded-lg flex items-center justify-center">
-              <Face className="w-6 h-6 text-white" />
+              <ScanFace className="w-6 h-6 text-white" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900">FaceMood AI</h1>

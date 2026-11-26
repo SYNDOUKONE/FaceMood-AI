@@ -12,6 +12,49 @@
     @apply bg-gray-50 text-gray-900;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
+
+  html.dark body {
+    @apply bg-gray-900 text-gray-100;
+  }
+}
+
+/* Dark mode overrides for shared component classes */
+html.dark .card {
+  @apply bg-gray-800 text-gray-100;
+}
+html.dark .card h1,
+html.dark .card h2,
+html.dark .card h3,
+html.dark h1,
+html.dark h2,
+html.dark h3 {
+  @apply text-gray-100;
+}
+html.dark .text-gray-900 {
+  @apply text-gray-100;
+}
+html.dark .text-gray-700 {
+  @apply text-gray-300;
+}
+html.dark .text-gray-600,
+html.dark .text-gray-500 {
+  @apply text-gray-400;
+}
+html.dark .bg-white {
+  @apply bg-gray-800;
+}
+html.dark .bg-gray-50 {
+  @apply bg-gray-900;
+}
+html.dark .bg-gray-100 {
+  @apply bg-gray-700;
+}
+html.dark .modal-content {
+  @apply bg-gray-800 text-gray-100;
+}
+html.dark .form-input,
+html.dark .input {
+  @apply bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400;
 }
 
 @layer components {

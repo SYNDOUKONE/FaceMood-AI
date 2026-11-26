@@ -65,7 +65,7 @@ class LandmarkExtractor:
                 base_options=base_options,
                 output_face_blendshapes=True,
                 output_facial_transformation_matrixes=True,
-                num_faces=1,
+                num_faces=5,
                 min_face_detection_confidence=0.5,
                 min_tracking_confidence=0.5
             )
@@ -142,16 +142,16 @@ class LandmarkExtractor:
                     "landmarks_3d": landmarks_3d
                 })
             
-            # Extract blendshapes if available
+            # Extract blendshapes if available — one list per detected face
             if detection_result.face_blendshapes:
                 for blendshapes in detection_result.face_blendshapes:
-                    results["blendshapes"] = [
+                    results["blendshapes"].append([
                         {
                             "category_name": bs.category_name,
                             "score": bs.score
                         }
                         for bs in blendshapes
-                    ]
+                    ])
             
             return results
             

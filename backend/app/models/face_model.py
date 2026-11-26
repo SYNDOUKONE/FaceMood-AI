@@ -102,11 +102,20 @@ class RecognizedProfile(BaseModel):
     confidence: float = Field(..., description="Recognition confidence score")
 
 
+class FaceRecognitionItem(BaseModel):
+    """Recognition result for a single detected face"""
+    recognized: bool = Field(default=False, description="Whether this face was recognized")
+    profile: Optional[RecognizedProfile] = Field(default=None, description="Matched profile if recognized")
+    confidence: float = Field(default=0.0, description="Best similarity score")
+    bbox: Optional[List[float]] = Field(default=None, description="Face bounding box [x1, y1, x2, y2]")
+
+
 class FaceRecognizeResponse(BaseModel):
     """Response model for face recognition"""
     success: bool = Field(default=True, description="Whether recognition was successful")
-    recognized: bool = Field(default=False, description="Whether a face was recognized")
-    profile: Optional[RecognizedProfile] = Field(default=None, description="Recognized profile")
+    recognized: bool = Field(default=False, description="Whether at least one face was recognized")
+    profile: Optional[RecognizedProfile] = Field(default=None, description="Primary recognized profile")
+    results: List[FaceRecognitionItem] = Field(default_factory=list, description="Recognition results for all detected faces")
     message: Optional[str] = Field(default=None, description="Additional message")
 
 
@@ -135,6 +144,7 @@ class ProfileResponse(BaseModel):
     consent_date: datetime = Field(..., description="Date when consent was given")
     created_at: datetime = Field(..., description="Profile creation date")
     updated_at: datetime = Field(..., description="Last update date")
+    avatar_url: Optional[str] = Field(default=None, description="URL of profile avatar image")
 
 
 class ProfileListResponse(BaseModel):
@@ -158,17 +168,4 @@ class ErrorResponse(BaseModel):
     details: Optional[Dict[str, Any]] = Field(default=None, description="Error details")
 
 
-# Configure Pydantic models
-for model in [
-    FaceDetectRequest, FaceDetectResponse,
-    FaceEnrollRequest, FaceEnrollResponse,
-    FaceRecognizeRequest, FaceRecognizeResponse,
-    ExpressionAnalyzeRequest, ExpressionAnalyzeResponse,
-    ProfileCreateRequest, ProfileResponse, ProfileListResponse,
-    HealthResponse, ErrorResponse
-]:
-    model.model_config = ConfigDict(
-        json_schema_extra={
-            "example": model.model_fields
-        }
-    )
+

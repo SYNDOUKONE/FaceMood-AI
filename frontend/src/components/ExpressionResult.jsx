@@ -3,7 +3,7 @@
  * Displays facial expression analysis results
  */
 import { useState, useEffect } from 'react'
-import { Smile, Meh, Frown, Eye, EyeOff, Mouth, AlertCircle, XCircle } from 'lucide-react'
+import { Smile, Meh, Frown, Eye, EyeOff, AlertCircle, XCircle } from 'lucide-react'
 
 // Expression icons mapping
 const EXPRESSION_ICONS = {
@@ -15,7 +15,7 @@ const EXPRESSION_ICONS = {
   'Dégoût': Frown,
   'Peur': EyeOff,
   'Sourcils levés': Eye,
-  'Bouche ouverte': Mouth,
+  'Bouche ouverte': Smile,
   'Clignement': EyeOff,
   'Inconnu': AlertCircle,
 }
@@ -63,7 +63,8 @@ export default function ExpressionResult({
 
   if (!result || !isVisible) return null
 
-  const { expression, confidence, blendshapes } = result
+  const data = result?.result || result
+  const { expression = 'Inconnu', confidence = 0, blendshapes } = data
   const Icon = EXPRESSION_ICONS[expression] || AlertCircle
   const color = EXPRESSION_COLORS[expression] || 'gray'
 
@@ -121,7 +122,8 @@ export default function ExpressionResult({
 export function SimpleExpressionResult({ result, className = '' }) {
   if (!result) return null
 
-  const { expression, confidence } = result
+  const data = result?.result || result
+  const { expression = 'Inconnu', confidence = 0 } = data
   const Icon = EXPRESSION_ICONS[expression] || AlertCircle
   const color = EXPRESSION_COLORS[expression] || 'gray'
 
@@ -129,7 +131,7 @@ export function SimpleExpressionResult({ result, className = '' }) {
     <div className={`flex items-center space-x-2 ${className}`}>
       <Icon className={`w-4 h-4 text-${color}-500`} />
       <span className={`text-sm font-medium text-${color}-600`}>
-        {expression} ({(confidence * 100).toFixed(0)}%)
+        {expression} ({((confidence || 0) * 100).toFixed(0)}%)
       </span>
     </div>
   )
@@ -139,14 +141,15 @@ export function SimpleExpressionResult({ result, className = '' }) {
 export function ExpressionBadge({ result, className = '' }) {
   if (!result) return null
 
-  const { expression, confidence } = result
+  const data = result?.result || result
+  const { expression = 'Inconnu', confidence = 0 } = data
   const color = EXPRESSION_COLORS[expression] || 'gray'
 
   return (
     <span
       className={`px-3 py-1 rounded-full text-xs font-medium ${className} bg-${color}-100 text-${color}-800`}
     >
-      {expression} ({(confidence * 100).toFixed(0)}%)
+      {expression} ({((confidence || 0) * 100).toFixed(0)}%)
     </span>
   )
 }
@@ -161,7 +164,8 @@ export function LargeExpressionDisplay({ result }) {
     )
   }
 
-  const { expression, confidence, blendshapes } = result
+  const data = result?.result || result
+  const { expression = 'Inconnu', confidence = 0, blendshapes } = data
   const Icon = EXPRESSION_ICONS[expression] || AlertCircle
   const color = EXPRESSION_COLORS[expression] || 'gray'
 

@@ -3,7 +3,7 @@
  * Main page with camera, detection, and analysis features
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Camera, Face, Smile, Users, Plus, Settings, Play, Stop, AlertCircle, CheckCircle, XCircle } from 'lucide-react'
+import { Camera, ScanFace, Smile, Users, Plus, Settings, Play, Square, AlertCircle, CheckCircle, XCircle } from 'lucide-react'
 import CameraComponent from '../components/Camera'
 import FaceMesh from '../components/FaceMesh'
 import AddFaceModal from '../components/AddFaceModal'
@@ -11,11 +11,13 @@ import RecognitionResult from '../components/RecognitionResult'
 import { SimpleExpressionResult, LargeExpressionDisplay } from '../components/ExpressionResult'
 import ProfileList from '../components/ProfileList'
 import { FaceAPI, RecognitionAPI, ExpressionAPI, ProfileAPI, HealthAPI } from '../services/api'
+import { loadSettings, SETTINGS_CHANGED_EVENT } from '../utils/settings'
 
 export default function Dashboard() {
   // State
-  const [isCameraActive, setIsCameraActive] = useState(false)
-  const [isDetecting, setIsDetecting] = useState(false)
+  const [appSettings, setAppSettings] = useState(() => loadSettings())
+  const [isCameraActive, setIsCameraActive] = useState(true)
+  const [isDetecting, setIsDetecting] = useState(() => loadSettings().autoRecognize)
   const [faces, setFaces] = useState([])
   const [landmarks, setLandmarks] = useState([])
   const [blendshapes, setBlendshapes] = useState([])
@@ -23,6 +25,7 @@ export default function Dashboard() {
   const [expressionResult, setExpressionResult] = useState(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [profileRefreshKey, setProfileRefreshKey] = useState(0)
   const [error, setError] = useState(null)
   const [stats, setStats] = useState({
     profiles: 0,
@@ -35,6 +38,19 @@ export default function Dashboard() {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const faceLandmarkerRef = useRef(null)
+  const lastRecognizeRef = useRef(0)
+  const isRecognizingRef = useRef(false)
+
+  // Listen for settings changes
+  useEffect(() => {
+    const onSettingsChanged = (e) => {
+      const updated = e.detail || loadSettings()
+      setAppSettings(updated)
+      setIsDetecting(Boolean(updated.autoRecognize))
+    }
+    window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged)
+  }, [])
 
   // Check API health
   const checkApiHealth = useCallback(async () => {
@@ -83,22 +99,17 @@ export default function Dashboard() {
     }
   }
 
-  // Handle face detection
-  const handleFaceDetected = useCallback((detectedFaces, detectedLandmarks, detectedBlendshapes) => {
-    setFaces(detectedFaces)
-    setLandmarks(detectedLandmarks)
-    setBlendshapes(detectedBlendshapes)
-    setStats(prev => ({ ...prev, detections: prev.detections + 1, lastDetection: new Date() }))
-    
-    // Auto-recognize if face is detected
-    if (detectedFaces.length > 0 && isDetecting) {
-      recognizeFace()
-    }
-  }, [isDetecting])
-
-  // Recognize face
-  const recognizeFace = useCallback(async () => {
+  // Recognize face (throttled to at most once every 1200ms)
+  const recognizeFace = useCallback(async (force = false) => {
     if (!videoRef.current || !isCameraActive) return
+    const now = Date.now()
+    if (!force && (isRecognizingRef.current || now - lastRecognizeRef.current < 1200)) {
+      return
+    }
+    if (!videoRef.current.videoWidth || !videoRef.current.videoHeight) return
+
+    isRecognizingRef.current = true
+    lastRecognizeRef.current = now
 
     try {
       const video = videoRef.current
@@ -116,14 +127,29 @@ export default function Dashboard() {
       // Create file
       const file = new File([blob], 'face.jpg', { type: 'image/jpeg' })
       
-      // Call recognition API
-      const result = await RecognitionAPI.recognize(file)
+      // Call recognition API using configured threshold
+      const result = await RecognitionAPI.recognize(file, appSettings.recognitionThreshold)
       setRecognitionResult(result)
     } catch (err) {
       console.error('Error recognizing face:', err)
       setError(err.message)
+    } finally {
+      isRecognizingRef.current = false
     }
-  }, [videoRef, isCameraActive])
+  }, [videoRef, isCameraActive, appSettings.recognitionThreshold])
+
+  // Handle face detection
+  const handleFaceDetected = useCallback((detectedFaces, detectedLandmarks, detectedBlendshapes) => {
+    setFaces(detectedFaces)
+    setLandmarks(detectedLandmarks)
+    setBlendshapes(detectedBlendshapes)
+    setStats(prev => ({ ...prev, detections: prev.detections + 1, lastDetection: new Date() }))
+    
+    // Auto-recognize if face is detected and detection is enabled
+    if (detectedFaces.length > 0 && isDetecting) {
+      recognizeFace()
+    }
+  }, [isDetecting, recognizeFace])
 
   // Analyze expression
   const analyzeExpression = useCallback(async () => {
@@ -149,8 +175,14 @@ export default function Dashboard() {
       const file = new File([blob], 'face.jpg', { type: 'image/jpeg' })
       
       // Call expression API
-      const result = await ExpressionAPI.analyze(file)
-      setExpressionResult(result)
+      const response = await ExpressionAPI.analyze(file)
+      if (response && response.success && response.result) {
+        setExpressionResult(response.result)
+      } else if (response && !response.success) {
+        setError(response.message || "Aucun visage détecté")
+      } else {
+        setExpressionResult(response)
+      }
     } catch (err) {
       console.error('Error analyzing expression:', err)
       setError(err.message)
@@ -172,9 +204,10 @@ export default function Dashboard() {
   // Handle modal success
   const handleModalSuccess = useCallback(() => {
     fetchStats()
+    setProfileRefreshKey((k) => k + 1)
     // Refresh recognition after adding a new profile
     if (isDetecting) {
-      recognizeFace()
+      recognizeFace(true)
     }
   }, [fetchStats, isDetecting, recognizeFace])
 
@@ -250,7 +283,7 @@ export default function Dashboard() {
         <div className="stats-card">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-              <Face className="w-5 h-5" />
+              <ScanFace className="w-5 h-5" />
             </div>
             <div>
               <p className="text-2xl font-bold">{stats.detections}</p>
@@ -319,7 +352,7 @@ export default function Dashboard() {
                 >
                   {isDetecting ? (
                     <>
-                      <Stop className="w-4 h-4" />
+                      <Square className="w-4 h-4" />
                       <span>Arrêter</span>
                     </>
                   ) : (
@@ -337,7 +370,7 @@ export default function Dashboard() {
                 >
                   {isCameraActive ? (
                     <>
-                      <Stop className="w-4 h-4" />
+                      <Square className="w-4 h-4" />
                       <span>Arrêter</span>
                     </>
                   ) : (
@@ -354,7 +387,9 @@ export default function Dashboard() {
             <div className="relative aspect-video bg-black rounded-lg overflow-hidden mb-4">
               <CameraComponent
                 ref={videoRef}
-                autoStart={false}
+                isActive={isCameraActive}
+                onActiveChange={setIsCameraActive}
+                autoStart={true}
                 width="100%"
                 height="100%"
               >
@@ -362,17 +397,21 @@ export default function Dashboard() {
                 <FaceMesh
                   videoRef={videoRef}
                   onLandmarksDetected={handleFaceDetected}
-                  showMesh={true}
-                  showLandmarks={true}
+                  showMesh={appSettings.showMesh}
+                  showLandmarks={appSettings.showLandmarks}
                 />
               </CameraComponent>
 
               {/* No camera message */}
               {!isCameraActive && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                  <div className="text-center text-white">
-                    <Camera className="w-12 h-12 mx-auto mb-2" />
-                    <p>Caméra désactivée</p>
+                <div
+                  onClick={() => setIsCameraActive(true)}
+                  className="absolute inset-0 flex items-center justify-center bg-black/70 cursor-pointer z-30 transition-colors hover:bg-black/60"
+                >
+                  <div className="text-center text-white p-4">
+                    <Camera className="w-12 h-12 mx-auto mb-2 text-primary-400 animate-pulse" />
+                    <p className="font-semibold text-lg">Caméra en pause</p>
+                    <p className="text-xs text-gray-300 mt-1">Cliquez ici ou sur &quot;Démarrer&quot; pour réactiver la caméra</p>
                   </div>
                 </div>
               )}
@@ -390,7 +429,7 @@ export default function Dashboard() {
               <button
                 onClick={() => setIsModalOpen(true)}
                 className="btn btn-primary flex-1 sm:flex-none"
-                disabled={!isCameraActive || faces.length === 0}
+                disabled={!isCameraActive}
               >
                 <Plus className="w-5 h-5" />
                 <span>Ajouter un visage</span>
@@ -399,7 +438,7 @@ export default function Dashboard() {
               <button
                 onClick={analyzeExpression}
                 className="btn btn-secondary flex-1 sm:flex-none"
-                disabled={!isCameraActive || faces.length === 0 || isAnalyzing}
+                disabled={!isCameraActive || isAnalyzing}
               >
                 {isAnalyzing ? (
                   <>
@@ -471,6 +510,8 @@ export default function Dashboard() {
               maxHeight="400px"
               onAddProfile={() => setIsModalOpen(true)}
               showActions={false}
+              showAddButton={false}
+              refreshTrigger={profileRefreshKey}
             />
           </div>
         </div>
@@ -481,6 +522,7 @@ export default function Dashboard() {
         isOpen={isModalOpen}
         onClose={handleModalClose}
         videoRef={videoRef}
+        faceDetected={faces.length > 0}
         onSuccess={handleModalSuccess}
         onError={(err) => setError(err.message)}
       />

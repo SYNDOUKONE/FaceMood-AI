@@ -3,7 +3,7 @@
  * Manage face profiles
  */
 import { useState, useEffect, useCallback } from 'react'
-import { Users, Plus, Search, Trash2, Edit2, Eye, User, Calendar, AlertCircle } from 'lucide-react'
+import { Users, Plus, Calendar, AlertCircle, CheckCircle } from 'lucide-react'
 import ProfileList from '../components/ProfileList'
 import AddFaceModal from '../components/AddFaceModal'
 import { ProfileAPI } from '../services/api'
@@ -14,7 +14,7 @@ export default function Profiles() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
   const [profiles, setProfiles] = useState([])
-  const [searchQuery, setSearchQuery] = useState('')
+  const [profileRefreshKey, setProfileRefreshKey] = useState(0)
 
   // Fetch profiles
   const fetchProfiles = useCallback(async () => {
@@ -60,26 +60,17 @@ export default function Profiles() {
     // In a real implementation, we'd open a profile details modal
   }, [])
 
-  // Handle delete profile
-  const handleDeleteProfile = useCallback(async (profileId) => {
-    try {
-      const result = await ProfileAPI.delete(profileId)
-      if (result.success) {
-        fetchProfiles()
-      } else {
-        throw new Error(result.message || 'Échec de la suppression')
-      }
-    } catch (err) {
-      setError(err.message)
-    }
+  // ProfileList already performed the API delete; just refresh stats
+  const handleDeleteProfile = useCallback(() => {
+    fetchProfiles()
   }, [fetchProfiles])
 
-  // Handle modal close
+  // Handle modal close / success
   const handleModalClose = useCallback(() => {
     setIsModalOpen(false)
     setSelectedProfile(null)
-    // Refresh the list
     fetchProfiles()
+    setProfileRefreshKey((k) => k + 1)
   }, [fetchProfiles])
 
   // Dismiss error
@@ -166,18 +157,6 @@ export default function Profiles() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Rechercher un profil..."
-          className="form-input pl-10"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-      </div>
-
       {/* Profile List */}
       <ProfileList
         onAddProfile={handleAddProfile}
@@ -185,11 +164,13 @@ export default function Profiles() {
         onEditProfile={handleEditProfile}
         onDeleteProfile={handleDeleteProfile}
         showActions={true}
+        refreshTrigger={profileRefreshKey}
       />
 
       {/* Add/Edit Profile Modal */}
       <AddFaceModal
         isOpen={isModalOpen}
+        profile={selectedProfile}
         onClose={handleModalClose}
         onSuccess={handleModalClose}
         onError={(err) => setError(err.message)}

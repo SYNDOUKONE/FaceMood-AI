@@ -6,7 +6,6 @@ import cv2
 import numpy as np
 from typing import List, Dict, Optional, Tuple
 from insightface.app import FaceAnalysis
-from insightface.data import mx_to_numpy
 from ..core.config import settings
 from ..core.security import encrypt_data, decrypt_data
 import logging
@@ -91,6 +90,52 @@ class EmbeddingService:
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
             return None
+
+    def generate_all_embeddings(self, image: np.ndarray) -> List[Dict]:
+        """
+        Generate normalized face embeddings for all faces detected in an image.
+        
+        Args:
+            image: Input image as numpy array (BGR format)
+        
+        Returns:
+            List of dicts with 'embedding', 'bbox', and 'det_score', sorted left-to-right.
+        """
+        if self.app is None or image is None:
+            return []
+
+        try:
+            if len(image.shape) == 3 and image.shape[2] == 3:
+                image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            else:
+                image_rgb = image
+
+            faces = self.app.get(image_rgb)
+            if not faces:
+                return []
+
+            results = []
+            for face in faces:
+                emb = face.embedding
+                if emb is None:
+                    continue
+                norm = np.linalg.norm(emb)
+                if norm > 0:
+                    emb = emb / norm
+                bbox = face.bbox.tolist() if getattr(face, "bbox", None) is not None else None
+                results.append({
+                    "embedding": emb,
+                    "bbox": bbox,
+                    "det_score": float(getattr(face, "det_score", 1.0)),
+                })
+
+            # Sort left-to-right by xmin so face order is stable
+            results.sort(key=lambda f: f["bbox"][0] if f["bbox"] else 0.0)
+            return results
+
+        except Exception as e:
+            logger.error(f"Error generating all embeddings: {e}")
+            return []
     
     def generate_embedding_from_bytes(self, image_bytes: bytes) -> Optional[np.ndarray]:
         """

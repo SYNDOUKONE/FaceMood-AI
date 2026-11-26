@@ -1,81 +1,98 @@
 /**
- * Custom hook for face detection using MediaPipe
+ * Custom hook for face detection using MediaPipe Tasks Vision
  */
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Face, Camera } from '@mediapipe/face_landmarks'
-import { drawConnectors } from '@mediapipe/drawing_utils'
+import { FaceLandmarker, FilesetResolver, DrawingUtils } from '@mediapipe/tasks-vision'
 
 export function useFaceDetection(options = {}) {
   const {
+    videoRef: externalVideoRef,
+    canvasRef: externalCanvasRef,
     onFaceDetected = () => {},
     onNoFace = () => {},
     onError = () => {},
-    maxFaces = 1,
+    maxFaces = 5,
     minDetectionConfidence = 0.5,
     minTrackingConfidence = 0.5,
   } = options
 
-  const videoRef = useRef(null)
-  const canvasRef = useRef(null)
+  const internalVideoRef = useRef(null)
+  const internalCanvasRef = useRef(null)
+  const videoRef = externalVideoRef || internalVideoRef
+  const canvasRef = externalCanvasRef || internalCanvasRef
+
   const [faces, setFaces] = useState([])
   const [isDetecting, setIsDetecting] = useState(false)
   const [error, setError] = useState(null)
   const [landmarks, setLandmarks] = useState([])
   const [blendshapes, setBlendshapes] = useState([])
 
-  // Store the face detector instance
   const detectorRef = useRef(null)
+  const animFrameRef = useRef(null)
+  const isDetectingRef = useRef(false)
 
   // Initialize the face detector
   const initDetector = useCallback(async () => {
+    if (detectorRef.current) return detectorRef.current
     try {
-      // Check if MediaPipe is available
-      if (typeof Face === 'undefined') {
-        throw new Error('MediaPipe Face Landmarker not loaded')
-      }
-
-      // Create face detector
-      const detector = await Face.createFromOptions(
-        window.FACEMESH_MODEL_PATH || '/models/face_landmarker.task',
-        {
-          baseOptions: {
-            modelAssetPath: window.FACEMESH_MODEL_PATH || '/models/face_landmarker.task',
-            delegate: 'CPU',
-          },
-          runningMode: 'VIDEO',
-          maxNumFaces: maxFaces,
-          minDetectionConfidence,
-          minTrackingConfidence,
-          outputFaceBlendshapes: true,
-        }
+      const filesetResolver = await FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
       )
+
+      const detector = await FaceLandmarker.createFromOptions(filesetResolver, {
+        baseOptions: {
+          modelAssetPath:
+            window.FACEMESH_MODEL_PATH ||
+            '/models/face_landmarker.task',
+          delegate: 'CPU',
+        },
+        runningMode: 'VIDEO',
+        numFaces: maxFaces,
+        minFaceDetectionConfidence: minDetectionConfidence,
+        minTrackingConfidence,
+        outputFaceBlendshapes: true,
+      })
 
       detectorRef.current = detector
       return detector
     } catch (err) {
-      console.error('Failed to initialize face detector:', err)
+      console.error('Failed to initialize FaceLandmarker:', err)
       setError(err)
       onError(err)
       return null
     }
   }, [maxFaces, minDetectionConfidence, minTrackingConfidence, onError])
 
-  // Start face detection
+  // Stop face detection
+  const stopDetection = useCallback(() => {
+    isDetectingRef.current = false
+    setIsDetecting(false)
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current)
+      animFrameRef.current = null
+    }
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d')
+      if (ctx) {
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+      }
+    }
+  }, [canvasRef])
+
+  // Start face detection loop
   const startDetection = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current) {
-      setError(new Error('Video or canvas element not available'))
       return
     }
 
     try {
-      // Initialize detector if not already done
-      if (!detectorRef.current) {
-        await initDetector()
+      let detector = detectorRef.current
+      if (!detector) {
+        detector = await initDetector()
       }
-
-      const detector = detectorRef.current
       if (!detector) return
 
+      isDetectingRef.current = true
       setIsDetecting(true)
       setError(null)
 
@@ -83,171 +100,132 @@ export function useFaceDetection(options = {}) {
       const canvas = canvasRef.current
       const ctx = canvas.getContext('2d')
 
-      // Set canvas dimensions to match video
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-
-      // Process video frames
-      const processFrame = async () => {
-        if (!videoRef.current || !canvasRef.current || !detectorRef.current) {
+      const processFrame = () => {
+        if (!isDetectingRef.current || !videoRef.current || !canvasRef.current || !detectorRef.current) {
           return
         }
 
-        try {
-          // Clear canvas
-          ctx.clearRect(0, 0, canvas.width, canvas.height)
+        const currentVideo = videoRef.current
+        const currentCanvas = canvasRef.current
 
-          // Detect faces
-          const results = await detector.detectForVideo(video, Date.now())
+        // Check if video is playing and has valid dimensions
+        if (currentVideo.readyState >= 2 && currentVideo.videoWidth > 0 && currentVideo.videoHeight > 0) {
+          if (currentCanvas.width !== currentVideo.videoWidth || currentCanvas.height !== currentVideo.videoHeight) {
+            currentCanvas.width = currentVideo.videoWidth
+            currentCanvas.height = currentVideo.videoHeight
+          }
 
-          if (results.detections && results.detections.length > 0) {
-            const detectedFaces = []
-            const detectedLandmarks = []
-            let detectedBlendshapes = []
+          ctx.clearRect(0, 0, currentCanvas.width, currentCanvas.height)
 
-            // Process each face
-            for (const detection of results.detections) {
-              detectedFaces.push({
-                boundingBox: detection.boundingBox,
-                confidence: detection.confidence,
-              })
+          try {
+            const results = detectorRef.current.detectForVideo(currentVideo, performance.now())
 
-              // Draw landmarks
-              if (detection.landmarks) {
-                // Convert landmarks to normalized coordinates
-                const landmarks2d = detection.landmarks.map(landmark => ({
-                  x: landmark.x * canvas.width,
-                  y: landmark.y * canvas.height,
+            if (results && results.faceLandmarks && results.faceLandmarks.length > 0) {
+              const detectedFaces = []
+              const detectedLandmarks = []
+              let detectedBlendshapes = []
+
+              const drawingUtils = new DrawingUtils(ctx)
+
+              for (let i = 0; i < results.faceLandmarks.length; i++) {
+                const faceMarks = results.faceLandmarks[i]
+                const xs = faceMarks.map((p) => p.x)
+                const ys = faceMarks.map((p) => p.y)
+                const minX = Math.min(...xs)
+                const maxX = Math.max(...xs)
+                const minY = Math.min(...ys)
+                const maxY = Math.max(...ys)
+
+                detectedFaces.push({
+                  boundingBox: {
+                    originX: minX,
+                    originY: minY,
+                    width: maxX - minX,
+                    height: maxY - minY,
+                  },
+                  confidence: 0.95,
+                })
+
+                const landmarks2d = faceMarks.map((lm) => ({
+                  x: lm.x * currentCanvas.width,
+                  y: lm.y * currentCanvas.height,
                 }))
                 detectedLandmarks.push(landmarks2d)
 
-                // Draw connections
-                drawConnectors(
-                  ctx,
-                  detection.landmarks,
-                  Face.FACE_LANDMARKS_TESSELATION,
+                // Draw mesh tesselation
+                drawingUtils.drawConnectors(
+                  faceMarks,
+                  FaceLandmarker.FACE_LANDMARKS_TESSELATION,
                   { color: '#C0C0C070', lineWidth: 1 }
                 )
 
-                // Draw landmarks
-                detection.landmarks.forEach(landmark => {
+                // Draw landmarks points
+                faceMarks.forEach((lm) => {
                   ctx.beginPath()
-                  ctx.arc(
-                    landmark.x * canvas.width,
-                    landmark.y * canvas.height,
-                    2,
-                    0,
-                    2 * Math.PI
-                  )
+                  ctx.arc(lm.x * currentCanvas.width, lm.y * currentCanvas.height, 2, 0, 2 * Math.PI)
                   ctx.fillStyle = '#00FF00'
                   ctx.fill()
                 })
+
+                // Blendshapes
+                if (results.faceBlendshapes && results.faceBlendshapes[i]) {
+                  detectedBlendshapes = results.faceBlendshapes[i].categories.map((cat) => ({
+                    categoryName: cat.categoryName,
+                    score: cat.score,
+                  }))
+                }
               }
 
-              // Process blendshapes
-              if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
-                detectedBlendshapes = results.faceBlendshapes[0].categories.map(cat => ({
-                  categoryName: cat.categoryName,
-                  score: cat.score,
-                }))
-              }
+              setFaces(detectedFaces)
+              setLandmarks(detectedLandmarks)
+              setBlendshapes(detectedBlendshapes)
+              onFaceDetected(detectedFaces, detectedLandmarks, detectedBlendshapes)
+            } else {
+              setFaces([])
+              setLandmarks([])
+              setBlendshapes([])
+              onNoFace()
             }
-
-            setFaces(detectedFaces)
-            setLandmarks(detectedLandmarks)
-            setBlendshapes(detectedBlendshapes)
-            onFaceDetected(detectedFaces, detectedLandmarks, detectedBlendshapes)
-          } else {
-            setFaces([])
-            setLandmarks([])
-            setBlendshapes([])
-            onNoFace()
+          } catch (detErr) {
+            // Frame processing can skip occasionally without crashing
           }
+        }
 
-          // Continue processing
-          requestAnimationFrame(processFrame)
-        } catch (err) {
-          console.error('Error processing frame:', err)
-          setError(err)
-          onError(err)
+        if (isDetectingRef.current) {
+          animFrameRef.current = requestAnimationFrame(processFrame)
         }
       }
 
-      // Start processing
-      processFrame()
+      animFrameRef.current = requestAnimationFrame(processFrame)
     } catch (err) {
-      console.error('Error starting detection:', err)
+      console.error('Error starting face detection:', err)
       setError(err)
       onError(err)
     }
-  }, [initDetector, onFaceDetected, onNoFace, onError])
-
-  // Stop face detection
-  const stopDetection = useCallback(() => {
-    setIsDetecting(false)
-  }, [])
+  }, [videoRef, canvasRef, initDetector, onFaceDetected, onNoFace, onError])
 
   // Toggle face detection
   const toggleDetection = useCallback(() => {
-    if (isDetecting) {
+    if (isDetectingRef.current) {
       stopDetection()
     } else {
       startDetection()
     }
-  }, [isDetecting, startDetection, stopDetection])
+  }, [startDetection, stopDetection])
 
-  // Capture current frame
+  // Capture current frame as data URL
   const captureFrame = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) {
-      return null
-    }
-
     const video = videoRef.current
+    if (!video || !video.videoWidth) return null
+
     const canvas = document.createElement('canvas')
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
 
     const ctx = canvas.getContext('2d')
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-
     return canvas.toDataURL('image/jpeg', 0.9)
-  }, [])
-
-  // Get face ROI (Region of Interest)
-  const getFaceROI = useCallback((faceIndex = 0) => {
-    if (!videoRef.current || faces.length === 0) {
-      return null
-    }
-
-    const video = videoRef.current
-    const face = faces[faceIndex]
-    const bbox = face.boundingBox
-
-    const x = bbox.originX * video.videoWidth
-    const y = bbox.originY * video.videoHeight
-    const width = bbox.width * video.videoWidth
-    const height = bbox.height * video.videoHeight
-
-    // Add padding
-    const padding = 20
-    const x1 = Math.max(0, x - padding)
-    const y1 = Math.max(0, y - padding)
-    const x2 = Math.min(video.videoWidth, x + width + padding)
-    const y2 = Math.min(video.videoHeight, y + height + padding)
-
-    const canvas = document.createElement('canvas')
-    canvas.width = x2 - x1
-    canvas.height = y2 - y1
-
-    const ctx = canvas.getContext('2d')
-    ctx.drawImage(
-      video,
-      x1, y1, x2 - x1, y2 - y1,
-      0, 0, x2 - x1, y2 - y1
-    )
-
-    return canvas
-  }, [faces])
+  }, [videoRef])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -272,7 +250,6 @@ export function useFaceDetection(options = {}) {
     stopDetection,
     toggleDetection,
     captureFrame,
-    getFaceROI,
     detector: detectorRef.current,
   }
 }

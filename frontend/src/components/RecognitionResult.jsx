@@ -33,64 +33,122 @@ export default function RecognitionResult({
 
   if (!result || !isVisible) return null
 
-  const { recognized, profile, confidence, threshold, message } = result
+  const { recognized, profile, confidence, threshold, message, results } = result
+  const faceResults = Array.isArray(results) && results.length > 0 ? results : null
 
   return (
     <div className="recognition-result animate-fade-in">
-      <div className="flex items-center space-x-3">
-        {recognized ? (
-          <div className="flex-shrink-0 w-10 h-10 bg-success-100 rounded-full flex items-center justify-center">
-            <CheckCircle className="w-6 h-6 text-success-600" />
-          </div>
-        ) : (
-          <div className="flex-shrink-0 w-10 h-10 bg-warning-100 rounded-full flex items-center justify-center">
-            <XCircle className="w-6 h-6 text-warning-600" />
-          </div>
-        )}
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center space-x-2">
-            {recognized ? (
-              <>
-                <User className="w-5 h-5 text-success-600" />
-                <h3 className="font-semibold text-gray-900 truncate">
-                  {profile?.name || 'Visage reconnu'}
-                </h3>
-              </>
-            ) : (
-              <h3 className="font-semibold text-gray-900">Visage inconnu</h3>
+      {faceResults ? (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              {faceResults.length} visage(s) analysé(s)
+            </span>
+            {autoDismiss && (
+              <button
+                onClick={() => setIsVisible(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+                title="Fermer"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
             )}
           </div>
-
-          <div className="flex items-center space-x-4 text-sm">
-            {recognized && confidence && (
-              <div className="flex items-center space-x-1 text-success-600">
-                <span>Confiance: {(confidence * 100).toFixed(1)}%</span>
+          {faceResults.map((item, idx) => {
+            const itemRecognized = item.recognized && item.profile
+            const itemConfidence = item.profile?.confidence ?? item.confidence ?? 0
+            return (
+              <div key={idx} className="flex items-center space-x-3 py-1">
+                {itemRecognized ? (
+                  <div className="flex-shrink-0 w-9 h-9 bg-success-100 rounded-full flex items-center justify-center">
+                    <CheckCircle className="w-5 h-5 text-success-600" />
+                  </div>
+                ) : (
+                  <div className="flex-shrink-0 w-9 h-9 bg-warning-100 rounded-full flex items-center justify-center">
+                    <XCircle className="w-5 h-5 text-warning-600" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center space-x-2">
+                    {itemRecognized ? (
+                      <>
+                        <User className="w-4 h-4 text-success-600" />
+                        <h3 className="font-semibold text-gray-900 truncate">
+                          {item.profile.name}
+                        </h3>
+                      </>
+                    ) : (
+                      <h3 className="font-semibold text-gray-900">
+                        Visage {faceResults.length > 1 ? `#${idx + 1} ` : ''}inconnu
+                      </h3>
+                    )}
+                  </div>
+                  {itemRecognized && (
+                    <span className="text-xs text-success-600">
+                      Confiance: {(itemConfidence * 100).toFixed(1)}%
+                    </span>
+                  )}
+                </div>
               </div>
-            )}
-            
-            {threshold && (
-              <div className="flex items-center space-x-1 text-gray-500">
-                <span>Seuil: {(threshold * 100).toFixed(0)}%</span>
-              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="flex items-center space-x-3">
+          {recognized ? (
+            <div className="flex-shrink-0 w-10 h-10 bg-success-100 rounded-full flex items-center justify-center">
+              <CheckCircle className="w-6 h-6 text-success-600" />
+            </div>
+          ) : (
+            <div className="flex-shrink-0 w-10 h-10 bg-warning-100 rounded-full flex items-center justify-center">
+              <XCircle className="w-6 h-6 text-warning-600" />
+            </div>
+          )}
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center space-x-2">
+              {recognized ? (
+                <>
+                  <User className="w-5 h-5 text-success-600" />
+                  <h3 className="font-semibold text-gray-900 truncate">
+                    {profile?.name || 'Visage reconnu'}
+                  </h3>
+                </>
+              ) : (
+                <h3 className="font-semibold text-gray-900">Visage inconnu</h3>
+              )}
+            </div>
+
+            <div className="flex items-center space-x-4 text-sm">
+              {recognized && confidence && (
+                <div className="flex items-center space-x-1 text-success-600">
+                  <span>Confiance: {(confidence * 100).toFixed(1)}%</span>
+                </div>
+              )}
+              
+              {threshold && (
+                <div className="flex items-center space-x-1 text-gray-500">
+                  <span>Seuil: {(threshold * 100).toFixed(0)}%</span>
+                </div>
+              )}
+            </div>
+
+            {message && (
+              <p className="text-sm text-gray-500 mt-1">{message}</p>
             )}
           </div>
 
-          {message && (
-            <p className="text-sm text-gray-500 mt-1">{message}</p>
+          {autoDismiss && (
+            <button
+              onClick={() => setIsVisible(false)}
+              className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
+              title="Fermer"
+            >
+              <XCircle className="w-5 h-5" />
+            </button>
           )}
         </div>
-
-        {autoDismiss && (
-          <button
-            onClick={() => setIsVisible(false)}
-            className="flex-shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
-            title="Fermer"
-          >
-            <XCircle className="w-5 h-5" />
-          </button>
-        )}
-      </div>
+      )}
     </div>
   )
 }

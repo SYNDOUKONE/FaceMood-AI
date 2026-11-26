@@ -18,32 +18,48 @@ class ExpressionAnalyzer:
     Uses MediaPipe blendshapes and geometric features
     """
     
-    # Expression thresholds for blendshapes
+    # Expression thresholds for real MediaPipe FaceLandmarker (ARKit-52) blendshapes
     BLENDSHAPE_THRESHOLDS = {
-        "smile": 0.7,
-        "browRaise": 0.6,
-        "browFrown": 0.5,
-        "mouthOpen": 0.5,
-        "mouthSmile": 0.6,
-        "mouthFrown": 0.5,
-        "eyeBlink": 0.8,
-        "eyeWiden": 0.6,
-        "cheekRaise": 0.5,
-        "noseWrinkle": 0.5
+        "mouthSmileLeft": 0.35,
+        "mouthSmileRight": 0.35,
+        "browInnerUp": 0.40,
+        "browOuterUpLeft": 0.40,
+        "browOuterUpRight": 0.40,
+        "browDownLeft": 0.35,
+        "browDownRight": 0.35,
+        "jawOpen": 0.35,
+        "mouthFrownLeft": 0.30,
+        "mouthFrownRight": 0.30,
+        "eyeBlinkLeft": 0.55,
+        "eyeBlinkRight": 0.55,
+        "eyeWideLeft": 0.40,
+        "eyeWideRight": 0.40,
+        "cheekSquintLeft": 0.40,
+        "cheekSquintRight": 0.40,
+        "noseSneerLeft": 0.30,
+        "noseSneerRight": 0.30,
     }
     
     # Expression mapping from blendshapes to ExpressionType
     BLENDSHAPE_TO_EXPRESSION = {
-        "smile": ExpressionType.SMILE,
-        "mouthSmile": ExpressionType.SMILE,
-        "browRaise": ExpressionType.SURPRISE,
-        "eyeWiden": ExpressionType.SURPRISE,
-        "browFrown": ExpressionType.ANGRY,
-        "mouthFrown": ExpressionType.ANGRY,
-        "noseWrinkle": ExpressionType.DISGUST,
-        "mouthOpen": ExpressionType.MOUTH_OPEN,
-        "eyeBlink": ExpressionType.EYE_BLINK,
-        "cheekRaise": ExpressionType.SMILE
+        "mouthSmileLeft": ExpressionType.SMILE,
+        "mouthSmileRight": ExpressionType.SMILE,
+        "cheekSquintLeft": ExpressionType.SMILE,
+        "cheekSquintRight": ExpressionType.SMILE,
+        "browInnerUp": ExpressionType.BROW_RAISE,
+        "browOuterUpLeft": ExpressionType.BROW_RAISE,
+        "browOuterUpRight": ExpressionType.BROW_RAISE,
+        "eyeWideLeft": ExpressionType.SURPRISE,
+        "eyeWideRight": ExpressionType.SURPRISE,
+        "browDownLeft": ExpressionType.ANGRY,
+        "browDownRight": ExpressionType.ANGRY,
+        "mouthFrownLeft": ExpressionType.SAD,
+        "mouthFrownRight": ExpressionType.SAD,
+        "noseSneerLeft": ExpressionType.DISGUST,
+        "noseSneerRight": ExpressionType.DISGUST,
+        "jawOpen": ExpressionType.MOUTH_OPEN,
+        "eyeBlinkLeft": ExpressionType.EYE_BLINK,
+        "eyeBlinkRight": ExpressionType.EYE_BLINK,
     }
     
     # Geometric feature thresholds
@@ -89,34 +105,55 @@ class ExpressionAnalyzer:
             }
         
         # Create blendshape dictionary for easy access
-        blendshape_dict = {bs["category_name"]: bs["score"] for bs in blendshapes}
-        
-        # Find the most prominent expression
+        blendshape_dict = {
+            bs["category_name"]: bs["score"]
+            for bs in blendshapes
+            if bs.get("category_name") != "_neutral"
+        }
+
+        def avg(*keys: str) -> float:
+            vals = [blendshape_dict.get(k, 0.0) for k in keys]
+            return sum(vals) / len(vals) if vals else 0.0
+
+        # Compute composite scores for each expression from real MediaPipe blendshapes
+        smile_score = avg("mouthSmileLeft", "mouthSmileRight")
+        brow_raise_score = max(blendshape_dict.get("browInnerUp", 0.0), avg("browOuterUpLeft", "browOuterUpRight"))
+        eye_wide_score = avg("eyeWideLeft", "eyeWideRight")
+        jaw_open_score = blendshape_dict.get("jawOpen", 0.0)
+        brow_down_score = avg("browDownLeft", "browDownRight")
+        frown_score = avg("mouthFrownLeft", "mouthFrownRight")
+        disgust_score = avg("noseSneerLeft", "noseSneerRight")
+        blink_score = avg("eyeBlinkLeft", "eyeBlinkRight")
+        mouth_stretch_score = avg("mouthStretchLeft", "mouthStretchRight")
+
+        candidates: List[Tuple[ExpressionType, float, float]] = [
+            (ExpressionType.SMILE, smile_score, 0.30),
+            (ExpressionType.SURPRISE, min(1.0, (eye_wide_score + jaw_open_score + brow_raise_score) / 2.0) if (eye_wide_score > 0.30 and brow_raise_score > 0.25) else 0.0, 0.35),
+            (ExpressionType.FEAR, (eye_wide_score + mouth_stretch_score) / 2.0 if eye_wide_score > 0.35 and mouth_stretch_score > 0.20 else 0.0, 0.30),
+            (ExpressionType.ANGRY, brow_down_score, 0.30),
+            (ExpressionType.SAD, frown_score, 0.25),
+            (ExpressionType.DISGUST, disgust_score, 0.25),
+            (ExpressionType.MOUTH_OPEN, jaw_open_score, 0.30),
+            (ExpressionType.BROW_RAISE, brow_raise_score, 0.35),
+            (ExpressionType.EYE_BLINK, blink_score, 0.50),
+        ]
+
         best_expression = ExpressionType.NEUTRAL
         best_confidence = 0.0
-        
-        for category, threshold in self.BLENDSHAPE_THRESHOLDS.items():
-            if category in blendshape_dict:
-                score = blendshape_dict[category]
-                if score > threshold and score > best_confidence:
-                    # Map to ExpressionType
-                    expression_type = self.BLENDSHAPE_TO_EXPRESSION.get(
-                        category, ExpressionType.UNKNOWN
-                    )
-                    best_expression = expression_type
-                    best_confidence = score
-        
-        # If no expression detected, check for neutral
-        if best_expression == ExpressionType.NEUTRAL and best_confidence == 0.0:
-            # Check if all scores are low
-            max_score = max(blendshape_dict.values()) if blendshape_dict else 0.0
-            if max_score < 0.3:
-                best_expression = ExpressionType.NEUTRAL
-                best_confidence = 1.0 - max_score
-        
+
+        for expr_type, score, threshold in candidates:
+            if score >= threshold and score > best_confidence:
+                best_expression = expr_type
+                best_confidence = score
+
+        # If no active expression exceeded its threshold, classify as Neutral
+        if best_expression == ExpressionType.NEUTRAL:
+            peak_expr = max(s for _, s, _ in candidates) if candidates else 0.0
+            best_confidence = max(0.5, min(0.99, 1.0 - peak_expr))
+
         return {
             "expression": best_expression,
-            "confidence": float(best_confidence),
+            "confidence": float(min(1.0, best_confidence)),
             "blendshapes": blendshape_dict
         }
     
@@ -164,17 +201,16 @@ class ExpressionAnalyzer:
         landmark_result = self.analyze_from_landmarks(landmarks)
         blendshape_result = self.analyze_from_blendshapes(blendshapes)
         
-        # Combine results (prioritize blendshapes as they're more reliable)
-        if blendshape_result["confidence"] > landmark_result["confidence"]:
+        # Prioritize blendshapes whenever available (far more accurate than raw geometry)
+        if blendshapes:
             return {
                 **blendshape_result,
                 "features": landmark_result.get("features", {})
             }
-        else:
-            return {
-                **landmark_result,
-                "blendshapes": blendshape_result.get("blendshapes", {})
-            }
+        return {
+            **landmark_result,
+            "blendshapes": blendshape_result.get("blendshapes", {})
+        }
     
     def _calculate_geometric_features(self, landmarks: List[Dict]) -> Dict:
         """

@@ -11,8 +11,24 @@ from ..services.face_detector import FaceDetector
 from ..core.config import settings
 import logging
 import cv2
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+AVATARS_DIR = Path("./data/avatars")
+AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _save_avatar(profile_id: int, image: np.ndarray) -> Optional[str]:
+    """Save profile avatar thumbnail as JPEG and return its API URL."""
+    try:
+        AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+        avatar_path = AVATARS_DIR / f"{profile_id}.jpg"
+        cv2.imwrite(str(avatar_path), image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        return f"/api/profiles/{profile_id}/avatar"
+    except Exception as e:
+        logger.warning(f"Failed to save avatar for profile {profile_id}: {e}")
+        return None
 
 
 class ProfileService:
@@ -113,10 +129,13 @@ class ProfileService:
                 }
             )
             
+            avatar_url = _save_avatar(profile.id, valid_images[0]) if valid_images else None
+
             return {
                 "success": True,
                 "profile_id": profile.id,
                 "name": profile.name,
+                "avatar_url": avatar_url,
                 "message": f"Profile '{name}' created successfully"
             }
             
@@ -212,7 +231,10 @@ class ProfileService:
                     "id": p.id,
                     "name": p.name,
                     "consent_given": p.consent_given,
-                    "created_at": p.created_at.isoformat() if p.created_at else None
+                    "consent_date": p.consent_date.isoformat() if p.consent_date else (p.created_at.isoformat() if p.created_at else None),
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                    "updated_at": p.updated_at.isoformat() if p.updated_at else (p.created_at.isoformat() if p.created_at else None),
+                    "avatar_url": f"/api/profiles/{p.id}/avatar" if (AVATARS_DIR / f"{p.id}.jpg").exists() else None,
                 }
                 for p in profiles
             ],
@@ -254,12 +276,17 @@ class ProfileService:
                 consent=consent
             )
             
+            avatar_path = AVATARS_DIR / f"{updated_profile.id}.jpg"
             return {
                 "success": True,
                 "profile": {
                     "id": updated_profile.id,
                     "name": updated_profile.name,
-                    "consent_given": updated_profile.consent_given
+                    "consent_given": updated_profile.consent_given,
+                    "consent_date": updated_profile.consent_date,
+                    "created_at": updated_profile.created_at,
+                    "updated_at": updated_profile.updated_at,
+                    "avatar_url": f"/api/profiles/{updated_profile.id}/avatar" if avatar_path.exists() else None,
                 },
                 "message": "Profile updated successfully"
             }
@@ -286,6 +313,9 @@ class ProfileService:
             success = await DatabaseManager.delete_profile(session, profile_id)
             
             if success:
+                avatar_path = AVATARS_DIR / f"{profile_id}.jpg"
+                if avatar_path.exists():
+                    avatar_path.unlink(missing_ok=True)
                 return {
                     "success": True,
                     "message": f"Profile {profile_id} deleted successfully"
@@ -396,6 +426,9 @@ class ProfileService:
                 profile_id=profile_id,
                 embedding=encrypted_embedding
             )
+            
+            if images:
+                self._save_avatar(profile_id, images[0])
             
             return {
                 "success": True,

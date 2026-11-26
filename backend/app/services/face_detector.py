@@ -28,7 +28,7 @@ class FaceDetector:
             model_path: Path to the MediaPipe face detection model
                         If None, uses the default from settings
         """
-        self.model_path = model_path or settings.mediapipe_model_path
+        self.model_path = model_path or getattr(settings, "mediapipe_detector_model_path", "./models/blaze_face_short_range.tflite")
         self.detector = None
         self._initialize_detector()
     
@@ -38,16 +38,19 @@ class FaceDetector:
             # Check if model file exists
             model_abs_path = Path(self.model_path).absolute()
             if not model_abs_path.exists():
-                logger.warning(f"Model file not found at {model_abs_path}. Downloading...")
-                self._download_model()
+                alt_path = Path(__file__).parent.parent.parent / "models" / "blaze_face_short_range.tflite"
+                if alt_path.exists():
+                    model_abs_path = alt_path
+                else:
+                    logger.warning(f"Model file not found at {model_abs_path}. Downloading...")
+                    self._download_model()
             
             # Create detector options
             base_options = python.BaseOptions(model_asset_path=str(model_abs_path))
             options = vision.FaceDetectorOptions(
                 base_options=base_options,
                 min_detection_confidence=0.5,
-                min_suppression_threshold=0.5,
-                min_tracking_confidence=0.5
+                min_suppression_threshold=0.5
             )
             
             # Create detector

@@ -2,7 +2,7 @@
 Face Detection Routes for FaceMood AI
 Handles face detection and landmark extraction
 """
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status
 from fastapi.responses import JSONResponse
 from typing import List
 import numpy as np
@@ -157,9 +157,10 @@ async def detect_landmarks(
 
 @router.post("/enroll", response_model=FaceEnrollResponse)
 async def enroll_face(
-    name: str,
-    consent: bool = True,
-    files: List[UploadFile] = File(..., description="Multiple face images")
+    name: str = Form(...),
+    consent: bool = Form(True),
+    files: List[UploadFile] = File(..., description="Multiple face images"),
+    db: AsyncSession = Depends(get_db)
 ) -> FaceEnrollResponse:
     """
     Enroll a new face profile
@@ -195,29 +196,25 @@ async def enroll_face(
             images.append(image)
         
         # Create profile
-        db = next(get_db())
-        try:
-            result = await profile_service.create_profile(
-                session=db,
-                name=name.strip(),
-                images=images,
-                consent=consent
+        result = await profile_service.create_profile(
+            session=db,
+            name=name.strip(),
+            images=images,
+            consent=consent
+        )
+        
+        if result.get("success", False):
+            return FaceEnrollResponse(
+                success=True,
+                profile_id=result.get("profile_id"),
+                name=result.get("name"),
+                message=result.get("message", "Profile enrolled successfully")
             )
-            
-            if result.get("success", False):
-                return FaceEnrollResponse(
-                    success=True,
-                    profile_id=result.get("profile_id"),
-                    name=result.get("name"),
-                    message=result.get("message", "Profile enrolled successfully")
-                )
-            else:
-                return FaceEnrollResponse(
-                    success=False,
-                    message=result.get("message", "Failed to enroll profile")
-                )
-        finally:
-            await db.close()
+        else:
+            return FaceEnrollResponse(
+                success=False,
+                message=result.get("message", "Failed to enroll profile")
+            )
         
     except Exception as e:
         logger.error(f"Error in face enrollment: {e}")
