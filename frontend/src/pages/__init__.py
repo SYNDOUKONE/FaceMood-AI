@@ -1,0 +1,1 @@
+"""Pages for FaceMood AI"""

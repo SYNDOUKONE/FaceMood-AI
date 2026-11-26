@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: facemood-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/models:/app/models
+    environment:
+      - APP_NAME=FaceMood AI
+      - APP_VERSION=2.0.0
+      - DEBUG=False
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DATABASE_URL=sqlite+aiosqlite:///./data/face_database.db
+      - SECRET_KEY=your-secret-key-change-in-production
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      - INSIGHTFACE_MODEL_NAME=antelopev2
+      - INSIGHTFACE_PROVIDERS=CPUExecutionProvider
+      - RECOGNITION_THRESHOLD=0.6
+    networks:
+      - facemood-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=http://localhost:8000
+    container_name: facemood-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    networks:
+      - facemood-network
+    # For development, we'll use the host's node_modules
+    # In production, use the built image
+    command: npm run dev
+
+  # PostgreSQL for production (optional)
+  postgres:
+    image: postgres:15-alpine
+    container_name: facemood-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=facemood
+      - POSTGRES_USER=facemood
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - facemood-network
+    profiles:
+      - production
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: facemood-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - facemood-network
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  facemood-network:
+    driver: bridge
